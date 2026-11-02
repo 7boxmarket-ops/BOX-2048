@@ -1,4 +1,3 @@
-
 name: Build BOX 2048 APK
 
 on:
@@ -6,8 +5,9 @@ on:
     branches:
       - main
     paths:
-      - 'BOX-2048-GitHub-Release.zip'
+      - 'BOX-2048-Android-Ready.zip'
       - '.github/workflows/build-apk.yml'
+
   workflow_dispatch:
 
 permissions:
@@ -20,61 +20,139 @@ jobs:
     timeout-minutes: 40
 
     steps:
+      # دریافت مخزن
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # نصب Java 17
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
+      # نصب Gradle
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      # نصب Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          packages: ''
 
       - name: Install Android SDK packages
         run: |
-          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
-      - name: Extract project
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      # استخراج فایل ZIP اصلی
+      - name: Extract Android project
         shell: bash
         run: |
           set -euo pipefail
-          test -s BOX-2048-GitHub-Release.zip
-          mkdir -p extracted
-          unzip -q BOX-2048-GitHub-Release.zip -d extracted
 
-      - name: Find Android project
-        shell: bash
-        run: |
-          set -euo pipefail
+          ZIP="BOX-2048-Android-Ready.zip"
 
-          GRADLEW=$(find extracted -type f -name gradlew | head -n 1)
-
-          if [ -z "$GRADLEW" ]; then
-            echo "Gradle wrapper not found!"
-            find extracted -maxdepth 4 -type f | head -100
+          if [ ! -s "$ZIP" ]; then
+            echo "ERROR: ZIP archive not found!"
             exit 1
           fi
 
-          PROJECT_DIR=$(dirname "$GRADLEW")
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          mkdir extracted
+          unzip -q "$ZIP" -d extracted
 
-          chmod +x "$GRADLEW"
+          echo "Archive extracted successfully."
 
+          find extracted -maxdepth 4 -type f | head -100
+
+      # بررسی ساختار پروژه
+      - name: Find and validate Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PROJECT_DIR="extracted/android"
+          GAME_DIR="extracted/box-2048/site"
+          ICON_DIR="extracted/box-2048/android-res"
+
+          test -d "$PROJECT_DIR/app"
+          test -f "$PROJECT_DIR/settings.gradle"
+          test -f "$PROJECT_DIR/app/build.gradle"
+          test -f "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
+          test -f "$GAME_DIR/index.html"
+          test -d "$ICON_DIR"
+
+          echo "Android project and game files found."
+
+      # انتقال فایل‌های بازی و آیکون‌ها
+      - name: Copy game assets and icons
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_DIR="extracted/android/app"
+
+          mkdir -p "$APP_DIR/src/main/assets/site"
+
+          # کپی کامل فایل‌های بازی بدون تغییر
+          cp -a extracted/box-2048/site/. \
+            "$APP_DIR/src/main/assets/site/"
+
+          # کپی آیکون‌های اندروید
+          cp -a extracted/box-2048/android-res/. \
+            "$APP_DIR/src/main/res/"
+
+          test -s "$APP_DIR/src/main/assets/site/index.html"
+          test -s "$APP_DIR/src/main/res/mipmap-mdpi/ic_launcher.png"
+
+          echo "Assets and icons copied."
+
+      # بررسی تنظیمات نسخه اندروید
+      - name: Validate Android configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd extracted/android
+
+          grep -R "com.sevenbox.box2048" app
+          grep -R "minSdk" app/build.gradle
+
+          echo "Android configuration checked."
+
+      # ساخت APK
       - name: Build APK
         shell: bash
         run: |
           set -euo pipefail
-          cd "$PROJECT_DIR"
-          ./gradlew assembleDebug --no-daemon
 
+          cd extracted/android
+
+          gradle --version
+
+          gradle assembleDebug --no-daemon
+
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ ! -s "$APK" ]; then
+            echo "ERROR: APK was not generated!"
+            exit 1
+          fi
+
+          mkdir -p ../../apk-output
+
+          cp "$APK" ../../apk-output/BOX-2048.apk
+
+          echo "APK successfully generated."
+
+      # انتشار فایل خروجی
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: BOX-2048-APK
-          path: |
-            ${{ env.PROJECT_DIR }}/**/build/outputs/apk/debug/*.apk
+          path: apk-output/BOX-2048.apk
           if-no-files-found: error
           retention-days: 14
