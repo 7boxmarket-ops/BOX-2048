@@ -6,9 +6,7 @@ on:
     branches:
       - main
     paths:
-      - 'worker/**'
-      - 'site/**'
-      - 'package.json'
+      - 'BOX-2048-GitHub-Release.zip'
       - '.github/workflows/deploy-worker.yml'
   workflow_dispatch:
 
@@ -18,9 +16,10 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -28,23 +27,25 @@ jobs:
         with:
           node-version: 20
 
-      - name: Check Project Files
+      - name: Extract project archive
         run: |
-          test -f worker/worker.js
-          test -f worker/wrangler.toml
-          test -f site/index.html
+          set -euo pipefail
+          test -f BOX-2048-GitHub-Release.zip
+          mkdir -p extracted
+          unzip -q -o BOX-2048-GitHub-Release.zip -d extracted
 
-      - name: Rebuild Site ZIP Automatically
-        run: |
-          cd site
-          zip -r -X ../worker/site.zip . \
-            -x "*.DS_Store"
-          cd ..
+          WORKER_DIR="extracted/box-2048/worker"
+          test -f "$WORKER_DIR/worker.js"
+          test -f "$WORKER_DIR/wrangler.toml"
+          test -f "$WORKER_DIR/site.zip"
 
-      - name: Deploy Cloudflare Worker
+          echo "WORKER_DIR=$WORKER_DIR" >> "$GITHUB_ENV"
+          echo "Worker files verified."
+
+      - name: Deploy to Cloudflare
         uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: worker
+          workingDirectory: ${{ env.WORKER_DIR }}
           command: deploy
