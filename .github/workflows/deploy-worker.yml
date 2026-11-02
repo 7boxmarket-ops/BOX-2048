@@ -1,0 +1,50 @@
+
+name: Deploy BOX 2048 Cloudflare Worker
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'worker/**'
+      - 'site/**'
+      - 'package.json'
+      - '.github/workflows/deploy-worker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check Project Files
+        run: |
+          test -f worker/worker.js
+          test -f worker/wrangler.toml
+          test -f site/index.html
+
+      - name: Rebuild Site ZIP Automatically
+        run: |
+          cd site
+          zip -r -X ../worker/site.zip . \
+            -x "*.DS_Store"
+          cd ..
+
+      - name: Deploy Cloudflare Worker
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: deploy
